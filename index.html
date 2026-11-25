@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GIF 스티커 메이커</title>
+<style>
+  :root { --pink:#fe2c55; --bg:#fff; --fg:#161823; --muted:#8a8b91; --card:#f4f4f6; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:480px; margin:0 auto; padding:16px 16px 48px; }
+  h1 { font-size:20px; margin:8px 0 4px; }
+  p.sub { margin:0 0 16px; color:var(--muted); font-size:13px; }
+  .card { background:var(--card); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .pick { display:block; text-align:center; padding:18px; border:2px dashed #c9c9cf; border-radius:14px; font-weight:600; cursor:pointer; margin-bottom:12px; }
+  .pick input { display:none; }
+  video { width:100%; max-height:260px; border-radius:10px; background:#000; display:none; }
+  label.row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:10px 0; font-size:14px; }
+  label.row span.v { min-width:44px; text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; }
+  input[type=range] { flex:1; accent-color:var(--pink); }
+  select { padding:6px 8px; border-radius:8px; border:1px solid #d0d0d6; background:#fff; font-size:14px; }
+  .toggle { display:flex; align-items:center; gap:8px; font-size:14px; margin:10px 0 2px; }
+  .toggle input { width:20px; height:20px; accent-color:var(--pink); }
+  small.hint { color:var(--muted); display:block; margin-top:4px; line-height:1.4; }
+  button { width:100%; padding:14px; border:0; border-radius:12px; background:var(--pink); color:#fff; font-size:16px; font-weight:700; }
+  button:disabled { background:#e3e3e8; color:#a0a0a6; }
+  button.sub { background:#fff; color:var(--fg); border:1px solid #d0d0d6; margin-top:8px; font-weight:600; }
+  #status { margin:12px 0 0; font-size:13px; color:var(--muted); min-height:18px; }
+  progress { width:100%; height:8px; margin-top:8px; display:none; accent-color:var(--pink); }
+  #result { display:none; }
+  .checker { border-radius:10px; padding:12px; text-align:center;
+    background-color:#fff;
+    background-image:linear-gradient(45deg,#ddd 25%,transparent 25%),linear-gradient(-45deg,#ddd 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#ddd 75%),linear-gradient(-45deg,transparent 75%,#ddd 75%);
+    background-size:16px 16px; background-position:0 0,0 8px,8px -8px,-8px 0; }
+  .checker img { max-width:100%; }
+  #info { font-size:13px; color:var(--muted); margin:8px 0 10px; text-align:center; }
+  a.dl { display:block; text-align:center; padding:14px; border-radius:12px; background:var(--pink); color:#fff; font-weight:700; text-decoration:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>GIF 스티커 메이커</h1>
+  <p class="sub">영상 → 배경 제거 → 투명 GIF · 틱톡 댓글용</p>
+
+  <label class="pick">
+    <input type="file" id="file" accept="video/*">
+    <span id="pickText">🎬 영상 고르기</span>
+  </label>
+
+  <div class="card" id="editor" style="display:none">
+    <video id="video" playsinline muted controls></video>
+
+    <label class="row">시작 <input type="range" id="start" min="0" max="10" step="0.1" value="0"><span class="v" id="startV">0.0초</span></label>
+    <label class="row">길이 <input type="range" id="dur" min="1" max="4" step="0.5" value="3"><span class="v" id="durV">3.0초</span></label>
+    <label class="row">초당 프레임
+      <select id="fps"><option value="8">8 (가벼움)</option><option value="10" selected>10</option><option value="12">12 (부드러움)</option></select>
+    </label>
+    <label class="row">가로 크기
+      <select id="size"><option value="200">200px</option><option value="256" selected>256px</option><option value="320">320px</option></select>
+    </label>
+
+    <label class="toggle"><input type="checkbox" id="ai" checked> AI로 배경 지우기 (투명 스티커)</label>
+    <label class="row">지울 대상
+      <select id="model"><option value="deeplab" selected>사람·강아지·고양이 등</option><option value="selfie">사람만 (더 정확)</option></select>
+    </label>
+    <label class="toggle"><input type="checkbox" id="invert"> 결과가 반대로 나오면 체크 (배경이 남을 때)</label>
+    <small class="hint">AI 모델은 작아서(수 MB) 금방 내려받아요. 프레임마다 처리하니 길이가 짧을수록 빨라요.</small>
+
+    <div style="height:14px"></div>
+    <button id="make" disabled>스티커 만들기</button>
+    <progress id="bar" max="1" value="0"></progress>
+    <div id="status"></div>
+  </div>
+
+  <div class="card" id="result">
+    <div class="checker"><img id="out" alt="만들어진 스티커"></div>
+    <div id="info"></div>
+    <a class="dl" id="dl" download="sticker.gif">GIF 저장하기</a>
+    <button class="sub" id="share" style="display:none">공유하기</button>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const video = $('video');
+const KEY = [0, 255, 0]; // 투명 처리용 키 색상
+
+let workerUrl = null;
+const segCache = {};
+const MODELS = {
+  deeplab: 'https://storage.googleapis.com/mediapipe-assets/deeplabv3.tflite?generation=1661875711618421',
+  selfie: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite'
+};
+const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+let lastBlob = null;
+
+// ---- 파일 선택 ----
+$('file').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  $('pickText').textContent = '🎬 ' + f.name;
+  video.src = URL.createObjectURL(f);
+  video.style.display = 'block';
+  $('editor').style.display = 'block';
+  $('result').style.display = 'none';
+  $('make').disabled = true;
+  $('status').textContent = '영상 불러오는 중...';
+});
+
+video.addEventListener('loadedmetadata', () => {
+  const d = video.duration || 0;
+  const s = $('start');
+  s.max = Math.max(0, d - 0.5).toFixed(1);
+  s.value = 0;
+  $('startV').textContent = '0.0초';
+  $('make').disabled = !isFinite(d) || d <= 0;
+  $('status').textContent = '영상 길이 ' + d.toFixed(1) + '초';
+});
+
+$('start').addEventListener('input', e => {
+  const t = +e.target.value;
+  $('startV').textContent = t.toFixed(1) + '초';
+  try { video.currentTime = t; } catch (_) {}
+});
+$('dur').addEventListener('input', e => { $('durV').textContent = (+e.target.value).toFixed(1) + '초'; });
+
+// ---- 유틸 ----
+function seek(t) {
+  return new Promise(res => {
+    if (Math.abs(video.currentTime - t) < 0.001) return res();
+    const h = () => { video.removeEventListener('seeked', h); res(); };
+    video.addEventListener('seeked', h);
+    video.currentTime = t;
+  });
+}
+
+async function getWorkerUrl() {
+  if (workerUrl) return workerUrl;
+  const r = await fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js');
+  const b = await r.blob();
+  workerUrl = URL.createObjectURL(b);
+  return workerUrl;
+}
+
+async function getSegmenter(key) {
+  if (segCache[key]) return segCache[key];
+  const { FilesetResolver, ImageSegmenter } = await import(MP + '/vision_bundle.mjs');
+  const vision = await FilesetResolver.forVisionTasks(MP + '/wasm');
+  const seg = await ImageSegmenter.createFromOptions(vision, {
+    baseOptions: { modelAssetPath: MODELS[key] },
+    outputCategoryMask: true,
+    outputConfidenceMasks: false,
+    runningMode: 'IMAGE'
+  });
+  segCache[key] = seg;
+  return seg;
+}
+
+function toBlob(canvas) {
+  return new Promise(r => canvas.toBlob(r, 'image/png'));
+}
+
+// 알파가 낮은 픽셀 -> 키 색상으로 바꿔서 GIF 투명 처리
+function applyKey(imgData) {
+  const d = imgData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] < 128) {
+      d[i] = KEY[0]; d[i + 1] = KEY[1]; d[i + 2] = KEY[2];
+    } else {
+      // 진짜 키 색상과 겹치면 살짝 비켜줌
+      if (d[i] === KEY[0] && d[i + 1] === KEY[1] && d[i + 2] === KEY[2]) d[i] = 1;
+    }
+    d[i + 3] = 255;
+  }
+  return imgData;
+}
+
+// ---- 만들기 ----
+$('make').addEventListener('click', async () => {
+  const btn = $('make'), bar = $('bar'), status = $('status');
+  btn.disabled = true;
+  $('result').style.display = 'none';
+  bar.style.display = 'block'; bar.value = 0;
+
+  try {
+    const start = +$('start').value;
+    const dur = +$('dur').value;
+    const fps = +$('fps').value;
+    const W = +$('size').value;
+    const useAI = $('ai').checked;
+
+    video.pause();
+    const end = Math.min(video.duration, start + dur);
+    const n = Math.max(1, Math.floor((end - start) * fps));
+    const H = Math.max(1, Math.round(W * video.videoHeight / video.videoWidth));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    status.textContent = '준비 중...';
+    const gifOpts = { workers: 2, quality: 1, width: W, height: H, repeat: 0, dither: false, workerScript: await getWorkerUrl() };
+    if (useAI) gifOpts.transparent = (KEY[0] << 16) | (KEY[1] << 8) | KEY[2];
+    const gif = new GIF(gifOpts);
+
+    let seg = null;
+    const invert = $('invert').checked;
+    if (useAI) {
+      status.textContent = 'AI 모델 불러오는 중...';
+      seg = await getSegmenter($('model').value);
+    }
+
+    for (let i = 0; i < n; i++) {
+      status.textContent = (useAI ? '배경 지우는 중 ' : '프레임 뽑는 중 ') + (i + 1) + '/' + n;
+      await seek(start + i / fps);
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(video, 0, 0, W, H);
+
+      let img = ctx.getImageData(0, 0, W, H);
+      if (seg) {
+        let done = false;
+        seg.segment(canvas, result => {
+          const m = result.categoryMask;
+          const mw = m.width, mh = m.height;
+          const arr = m.getAsUint8Array();
+          const d = img.data;
+          for (let y = 0; y < H; y++) {
+            const row = Math.floor(y * mh / H) * mw;
+            for (let x = 0; x < W; x++) {
+              const v = arr[row + Math.floor(x * mw / W)];
+              const fg = (v > 0) !== invert;
+              if (!fg) d[(y * W + x) * 4 + 3] = 0;
+            }
+          }
+          done = true;
+        });
+        if (!done) throw new Error('AI 결과를 받지 못했어요');
+        img = applyKey(img);
+      }
+      gif.addFrame(img, { delay: Math.round(1000 / fps) });
+      bar.value = (i + 1) / n * 0.7;
+    }
+
+    status.textContent = 'GIF로 합치는 중...';
+    gif.on('progress', p => { bar.value = 0.7 + p * 0.3; });
+    const blob = await new Promise(res => { gif.on('finished', res); gif.render(); });
+
+    lastBlob = blob;
+    const url = URL.createObjectURL(blob);
+    $('out').src = url;
+    $('dl').href = url;
+    $('info').textContent = W + '×' + H + ' · ' + (blob.size / 1024).toFixed(0) + 'KB · ' + n + '프레임';
+    $('result').style.display = 'block';
+    status.textContent = '완성! 🎉';
+    $('result').scrollIntoView({ behavior: 'smooth' });
+  } catch (err) {
+    console.error(err);
+    status.textContent = '문제가 생겼어요: ' + (err && err.message ? err.message : err) + ' (AI 끄고 다시 해보세요)';
+  } finally {
+    btn.disabled = false;
+    bar.style.display = 'none';
+  }
+});
+
+// ---- 공유 ----
+if (navigator.canShare) {
+  $('share').style.display = 'block';
+  $('share').addEventListener('click', async () => {
+    if (!lastBlob) return;
+    const f = new File([lastBlob], 'sticker.gif', { type: 'image/gif' });
+    try {
+      if (navigator.canShare({ files: [f] })) await navigator.share({ files: [f] });
+      else $('status').textContent = '이 브라우저는 파일 공유를 지원하지 않아요. 저장 버튼을 써주세요.';
+    } catch (_) {}
+  });
+}
+</script>
+</body>
+</html>
